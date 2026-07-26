@@ -8,10 +8,10 @@ I built this because I kept hearing it was a genuinely good project for learning
 
 ```mermaid
 flowchart LR
-    P[Producer<br/>enqueue()] -->|INSERT| J[(jobs table<br/>Postgres)]
-    W1[Worker 1] -->|SKIP LOCKED claim| J
-    W2[Worker 2] -->|SKIP LOCKED claim| J
-    W3[Worker 3] -->|SKIP LOCKED claim| J
+    P["Producer<br/>enqueue()"] -->|INSERT| J[("jobs table<br/>Postgres")]
+    W1["Worker 1"] -->|SKIP LOCKED claim| J
+    W2["Worker 2"] -->|SKIP LOCKED claim| J
+    W3["Worker 3"] -->|SKIP LOCKED claim| J
 ```
 
 Producers just insert a row and move on. Workers independently poll the same table, each claiming a batch of jobs at a time. `SKIP LOCKED` guarantees two workers never walk away thinking they own the same job, even if they query at the exact same instant.
