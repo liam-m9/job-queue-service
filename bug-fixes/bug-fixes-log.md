@@ -15,13 +15,18 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Verification:** Clean TypeScript compilation (`npx tsc --noEmit`) and passing concurrency test suite (`npm test`).
 - **Defensible Defense:** "We replaced fixed-interval polling with a controlled async loop and shutdown flag to guarantee zero tick overlap and ensure all in-flight database operations drain completely before process exit."
 
+### [P0] Structural failures burn retries as if they were transient
+- **Branch:** `fix/structural-failure-fast-dead`
+- **File:** `worker.ts`
+- **Root Cause:** Missing job rows caused `undefined.type` and `undefined.attempts` accesses in `processJob`, throwing a secondary `TypeError` inside the `catch` block that crashed the worker process. Unregistered job types (`runTasks[type] == null`) threw `TypeError`, which the `catch` block treated as a transient error, burning 5 retries over several minutes before marking the job `dead`.
+- **Implementation:** Added early guards before entering `try`: checked `!currentJob.rows || currentJob.rows.length === 0` to log and exit cleanly on missing rows; checked `!runTasks[jobData.type]` to transition unregistered task types immediately to `status = 'dead'` with `last_error = Unknown job type: ${jobData.type}` on attempt 1 without retrying.
+- **Trade-Offs:** Failing fast on structural errors avoids unneeded database retries and queue bloat, while preserving standard linear backoff retries inside `try/catch` for genuine transient execution failures.
+- **Verification:** Clean TypeScript compilation (`npm run typecheck`).
+- **Defensible Defense:** "We separated structural errors (missing rows or unregistered code handlers) from transient failures. Structural errors fail fast to `dead` on attempt 1 without burning retries, while early row checking prevents secondary `TypeError` crashes inside the catch block."
+
 ---
 
 ## Future Bug Fixes Backlog
-
-### [P0] Structural failures burn retries as if they were transient (branch: `fix/structural-failure-fast-dead`)
-- **Learn first:** Transient vs structural failure classification; poison-pill message handling.
-- **Status:** todo
 
 ### [P1] Unguarded write-back after visibility timeout expires (branch: `fix/guarded-writeback`)
 - **Learn first:** Fencing tokens; concurrency lease validation; state machine integrity.

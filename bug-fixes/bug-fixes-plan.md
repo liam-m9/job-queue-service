@@ -41,7 +41,7 @@ Legend: **P0** correctness / data durability, **P1** robustness & ownership, **P
 - **Fix approach:** Validate job row existence and handler registration before the `try` block. If the handler is missing, transition the job immediately to `dead` with a descriptive `last_error` and `continue`.
 - **Concept:** Transient vs structural failure classification; poison-pill message handling.
 - **Branch:** `fix/structural-failure-fast-dead`
-- **Status:** todo
+- **Status:** done
 
 ### [P1] Unguarded write-back after visibility timeout expires
 - **Where:** `worker.ts`, `processJob`
