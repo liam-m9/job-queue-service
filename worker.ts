@@ -44,9 +44,9 @@ async function claimJobs(batchSize: number): Promise<number[]> {
     );
     await client.query("COMMIT");
     return jobIds;
-  } catch (e) {
+  } catch (error: any) {
     await client.query("ROLLBACK");
-    throw e;
+    throw error;
   } finally {
     client.release();
   }
@@ -59,29 +59,48 @@ async function processClaimedJobs(): Promise<void> {
   }
 }
 
-async function processJob(jobId: number): Promise<void> {
+async function processJob(job: number): Promise<void> {
   const currentJob = await pool.query<JobRow>(
     `
     SELECT id, type, payload, status, attempts, max_attempts, run_at
     FROM jobs 
     WHERE id = $1
     `,
-    [jobId],
+    [job],
   );
 
+  // guard for the not job existing 
+  if (!currentJob.rows || currentJob.rows.length === 0) {
+    console.error(`Job: ${job}, not found`)
+    return
+  }
+
+  const jobData = currentJob.rows[0]
+
+  // guard for undefined job type 
+  if (!runTasks[jobData.type]) {
+    await pool.query(
+      `UPDATE jobs SET status = 'dead', last_error = $2 WHERE id = $1`,
+      [jobData.id, `Unknown job type: ${jobData.type}`]
+    );
+    console.error(`Job ${jobData.id} marked dead: unknown job type '${jobData.type}'`);
+    return;
+  }
+
   try {
-    const handler = runTasks[currentJob.rows[0].type];
-    await handler(currentJob.rows[0].payload);
+    const handler = runTasks[jobData.type];
+    await handler(jobData.payload);
     await pool.query(
       `
         UPDATE jobs 
         SET status = 'completed'
         WHERE id = $1
         `,
-      [currentJob.rows[0].id],
+      [jobData.id],
     );
-  } catch (e: any) {
-    let currentDelay = currentJob.rows[0].attempts * BACKOFF_DELAY;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    let currentDelay = jobData.attempts * BACKOFF_DELAY;
     await pool.query(
       `
         UPDATE jobs 
@@ -97,7 +116,7 @@ async function processJob(jobId: number): Promise<void> {
             attempts = attempts + 1
         WHERE id = $1
         `,
-      [currentJob.rows[0].id, VISIBILITY_TIMEOUT, currentDelay, e.message],
+      [jobData.id, VISIBILITY_TIMEOUT, currentDelay, errorMessage],
     );
   }
 }
