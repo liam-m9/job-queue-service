@@ -33,7 +33,7 @@ Legend: **P0** correctness / data durability, **P1** robustness & ownership, **P
 - **Fix approach:** Replace `setInterval` with a self-scheduling `while (!stopped)` loop using `setTimeout`. Await tick completion before scheduling the next delay. Maintain a single `loopPromise` and set `stopped = true` on process signal handlers to ensure in-flight work drains cleanly before `process.exit()`.
 - **Concept:** Event loop execution order; single-process concurrency; graceful shutdown drain.
 - **Branch:** `fix/worker-no-overlap`
-- **Status:** todo
+- **Status:** done
 
 ### [P0] Structural failures burn retries as if they were transient
 - **Where:** `worker.ts`, `processJob`
