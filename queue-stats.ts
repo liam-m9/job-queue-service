@@ -1,6 +1,6 @@
-import pool from "./db.js";
+import pool from "./db.ts";
 
-async function displayStats() {
+async function displayStats(): Promise<void> {
   const getJobCount = await pool.query(
     `SELECT status, COUNT(*) FROM jobs GROUP BY status`,
   );

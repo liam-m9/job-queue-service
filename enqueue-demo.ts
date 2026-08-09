@@ -1,14 +1,14 @@
-import { enqueue } from "./producer.js";
+import { enqueue } from "./producer.ts";
 
 let numberOfJobs = Number(process.argv[2]);
 
-function randomType() {
+function randomType(): string {
   const types = ["reliableTask", "flakyTask"];
   let randomOutcome = Math.floor(Math.random() * 2);
   return types[randomOutcome];
 }
 
-function randomPayload() {
+function randomPayload(): object {
   const payloads = [
     { to: "example@proton.me", subject: "welcome" },
     { image: "https://example.com/photo.png", width: 800 },
@@ -18,7 +18,7 @@ function randomPayload() {
   return payloads[randomOutcome];
 }
 
-async function enqueueJobs() {
+async function enqueueJobs(): Promise<void> {
   if (isNaN(numberOfJobs) || numberOfJobs === 0) {
     numberOfJobs = 10;
   }
@@ -27,4 +27,4 @@ async function enqueueJobs() {
   }
 }
 
-await enqueueJobs()
+await enqueueJobs();

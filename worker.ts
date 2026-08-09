@@ -1,14 +1,24 @@
-import pool from "./db.js";
-import { runTasks } from "./jobHandlers.js";
+import pool from "./db.ts";
+import { runTasks } from "./jobHandlers.ts";
 
 const VISIBILITY_TIMEOUT = 60;
 const BACKOFF_DELAY = 10;
 
-async function claimJobs(batchSize) {
+export interface JobRow {
+  id: number;
+  type: string;
+  payload: any;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  run_at: Date;
+}
+
+async function claimJobs(batchSize: number): Promise<number[]> {
   const client = await pool.connect();
   try {
-    await client.query(`BEGIN`);
-    const selectIds = await client.query(
+    await client.query("BEGIN");
+    const selectIds = await client.query<{ id: number }>(
       `
         SELECT * 
         FROM jobs
@@ -42,25 +52,26 @@ async function claimJobs(batchSize) {
   }
 }
 
-async function processClaimedJobs() {
+async function processClaimedJobs(): Promise<void> {
   let jobs = await claimJobs(5);
   for (let i = 0; i < jobs.length; i++) {
     await processJob(jobs[i]);
   }
 }
 
-async function processJob(job) {
-  const currentJob = await pool.query(
+async function processJob(jobId: number): Promise<void> {
+  const currentJob = await pool.query<JobRow>(
     `
     SELECT id, type, payload, status, attempts, max_attempts, run_at
     FROM jobs 
     WHERE id = $1
     `,
-    [job],
+    [jobId],
   );
 
   try {
-    await runTasks[currentJob.rows[0].type](currentJob.rows[0].payload);
+    const handler = runTasks[currentJob.rows[0].type];
+    await handler(currentJob.rows[0].payload);
     await pool.query(
       `
         UPDATE jobs 
@@ -69,7 +80,7 @@ async function processJob(job) {
         `,
       [currentJob.rows[0].id],
     );
-  } catch (e) {
+  } catch (e: any) {
     let currentDelay = currentJob.rows[0].attempts * BACKOFF_DELAY;
     await pool.query(
       `
