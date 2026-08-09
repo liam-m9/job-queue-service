@@ -24,13 +24,18 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
 - **Defensible Defense:** "We separated structural errors (missing rows or unregistered code handlers) from transient failures. Structural errors fail fast to `dead` on attempt 1 without burning retries, while early row checking prevents secondary `TypeError` crashes inside the catch block."
 
+### [P1] Unguarded write-back after visibility timeout expires
+- **Branch:** `fix/guarded-writeback`
+- **File:** `worker.ts`
+- **Root Cause:** If a worker process took longer than the 60s visibility timeout (`run_at <= now()`), another worker could re-claim the active job. The slow worker's completion or failure `UPDATE` statements executed unconditionally by `WHERE id = $1`, overwriting the state of a job currently being processed by worker 2.
+- **Implementation:** Added lease ownership fencing to terminal `UPDATE` queries (`WHERE id = $1 AND status = 'active' AND run_at > now()`). If `result.rowCount === 0`, logged a warning that write-back was ignored due to an expired claim/lost ownership, preventing stale state overwrites.
+- **Trade-Offs:** Fencing the `UPDATE` query guarantees state machine integrity with zero database schema changes or extra locking overhead.
+- **Verification:** Clean TypeScript compilation (`npm run typecheck`).
+- **Defensible Defense:** "We fenced terminal state updates with lease ownership checks (`status = 'active' AND run_at > now()`). If a worker exceeds its visibility timeout, its late write-back becomes a no-op, preventing dead men's hands from overwriting active job state."
+
 ---
 
 ## Future Bug Fixes Backlog
-
-### [P1] Unguarded write-back after visibility timeout expires (branch: `fix/guarded-writeback`)
-- **Learn first:** Fencing tokens; concurrency lease validation; state machine integrity.
-- **Status:** todo
 
 ### [P1] Crash-reclaim never counts an attempt (branch: `fix/reclaim-counts-attempt`)
 - **Learn first:** SQS receive count & DLQ redrive policies; visibility timeout reclaim semantics.

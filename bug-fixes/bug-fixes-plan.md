@@ -49,7 +49,7 @@ Legend: **P0** correctness / data durability, **P1** robustness & ownership, **P
 - **Fix approach:** Fencing the `UPDATE` queries with conditional checks (`WHERE id = $1 AND status = 'active' AND run_at > now()`) or adding a `claim_epoch` (fencing token) column incremented on claim.
 - **Concept:** Fencing tokens; concurrency lease validation; state machine integrity.
 - **Branch:** `fix/guarded-writeback`
-- **Status:** todo
+- **Status:** done
 
 ### [P1] Crash-reclaim never counts an attempt
 - **Where:** `worker.ts`, `claimJobs`

@@ -90,18 +90,23 @@ async function processJob(job: number): Promise<void> {
   try {
     const handler = runTasks[jobData.type];
     await handler(jobData.payload);
-    await pool.query(
+    const result = await pool.query(
       `
         UPDATE jobs 
         SET status = 'completed'
-        WHERE id = $1
+        WHERE id = $1 AND status = 'active' AND run_at > now()
         `,
       [jobData.id],
     );
+    if (result.rowCount === 0) {
+      console.warn(
+        `Job ${jobData.id} completion write-back ignored: lease expired or lost ownership`,
+      );
+    }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     let currentDelay = jobData.attempts * BACKOFF_DELAY;
-    await pool.query(
+    const result = await pool.query(
       `
         UPDATE jobs 
         SET status = CASE 
@@ -114,10 +119,15 @@ async function processJob(job: number): Promise<void> {
             END,
             last_error = $4,
             attempts = attempts + 1
-        WHERE id = $1
+        WHERE id = $1 AND status = 'active' AND run_at > now()
         `,
       [jobData.id, VISIBILITY_TIMEOUT, currentDelay, errorMessage],
     );
+    if (result.rowCount === 0) {
+      console.warn(
+        `Job ${jobData.id} failure write-back ignored: lease expired or lost ownership`,
+      );
+    }
   }
 }
 
