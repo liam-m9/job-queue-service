@@ -13,27 +13,35 @@ const id = getWorkerId();
 
 console.log(`Worker ${id} starting, polling every 2s...`);
 
-let currentTick: Promise<void> | null = null;
+let stopped = false
 
-const intervalId = setInterval(async () => {
-  try {
-    currentTick = processClaimedJobs();
-    await currentTick;
-  } catch (e: any) {
-    console.error(`Worker ${id} error:`, e.message);
+async function loop() {
+  while (!stopped) {
+    try {
+      await processClaimedJobs();
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.log(`Worker ${id}: ${error.message}`)
+      } else {
+        console.log(`Worker ${id}: ${error}`)
+      }
+    }
+    if (!stopped) await new Promise(resolve => setTimeout(resolve, 1000))
   }
-}, 2000);
+}
+
+const loopPromise = loop()
 
 process.on("SIGINT", async () => {
-  clearInterval(intervalId);
-  await currentTick;
+  stopped = true
+  await loopPromise
   console.log("Ended process");
   process.exit();
 });
 
 process.on("SIGTERM", async () => {
-  clearInterval(intervalId);
-  await currentTick;
+  stopped = true
+  await loopPromise
   console.log("Ended process");
   process.exit();
 });
