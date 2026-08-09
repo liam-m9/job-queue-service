@@ -13,7 +13,7 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Implementation:** Replaced `setInterval` with an async `while (!stopped)` loop. Stored `const loopPromise = loop()` at startup. On `SIGINT`/`SIGTERM`, set `stopped = true` and `await loopPromise` before exiting.
 - **Trade-Offs:** Replaced fixed-interval polling with dynamic backpressure (2-second pause occurs *after* batch completion). Total cycle time becomes `processing_time + 2000ms`, protecting PostgreSQL under heavy load.
 - **Verification:** Clean TypeScript compilation (`npx tsc --noEmit`) and passing concurrency test suite (`npm test`).
-- **Defensible Defense:** "We replaced fixed-interval polling with a controlled async loop and shutdown flag to guarantee zero tick overlap and ensure all in-flight database operations drain completely before process exit."
+- **Interview Takeaway:** I replaced fixed-interval polling with a controlled async loop and shutdown flag to guarantee zero tick overlap and ensure all in-flight database operations drain completely before process exit.
 
 ### [P0] Structural failures burn retries as if they were transient
 - **Branch:** `fix/structural-failure-fast-dead`
@@ -22,7 +22,7 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Implementation:** Added early guards before entering `try`: checked `!currentJob.rows || currentJob.rows.length === 0` to log and exit cleanly on missing rows; checked `!runTasks[jobData.type]` to transition unregistered task types immediately to `status = 'dead'` with `last_error = Unknown job type: ${jobData.type}` on attempt 1 without retrying.
 - **Trade-Offs:** Failing fast on structural errors avoids unneeded database retries and queue bloat, while preserving standard linear backoff retries inside `try/catch` for genuine transient execution failures.
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
-- **Defensible Defense:** "We separated structural errors (missing rows or unregistered code handlers) from transient failures. Structural errors fail fast to `dead` on attempt 1 without burning retries, while early row checking prevents secondary `TypeError` crashes inside the catch block."
+- **Interview Takeaway:** I separated structural errors (missing rows or unregistered code handlers) from transient failures. Structural errors fail fast to `dead` on attempt 1 without burning retries, while early row checking prevents secondary `TypeError` crashes inside the catch block.
 
 ### [P1] Unguarded write-back after visibility timeout expires
 - **Branch:** `fix/guarded-writeback`
@@ -31,7 +31,7 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Implementation:** Added lease ownership fencing to terminal `UPDATE` queries (`WHERE id = $1 AND status = 'active' AND run_at > now()`). If `result.rowCount === 0`, logged a warning that write-back was ignored due to an expired claim/lost ownership, preventing stale state overwrites.
 - **Trade-Offs:** Fencing the `UPDATE` query guarantees state machine integrity with zero database schema changes or extra locking overhead.
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
-- **Defensible Defense:** "We fenced terminal state updates with lease ownership checks (`status = 'active' AND run_at > now()`). If a worker exceeds its visibility timeout, its late write-back becomes a no-op, preventing dead men's hands from overwriting active job state."
+- **Interview Takeaway:** I fenced terminal state updates with lease ownership checks (`status = 'active' AND run_at > now()`). If a worker exceeds its visibility timeout, its late write-back becomes a no-op, preventing dead men's hands from overwriting active job state.
 
 ### [P1] Crash-reclaim never counts an attempt
 - **Branch:** `fix/reclaim-counts-attempt`
@@ -40,7 +40,7 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Implementation:** Updated the `claimJobs` `UPDATE` query with a `CASE` statement: `WHEN status = 'active' THEN attempts + 1 ELSE attempts END`. This increments `attempts` when claiming an expired active job (modeling AWS SQS `ApproximateReceiveCount` / DLQ redrive semantics). Updated `README.md` to document the receive-count mechanism and the requirement that `VISIBILITY_TIMEOUT` exceed worst-case handler duration.
 - **Trade-Offs:** Incrementing attempt count on crash reclaim guarantees that poison-pill jobs crashing workers move to `dead`. A tight visibility timeout on a slow but healthy job could cost one false attempt, which is mitigated by tuning `VISIBILITY_TIMEOUT`.
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
-- **Defensible Defense:** "We implemented SQS ApproximateReceiveCount semantics by incrementing `attempts` during crash reclaims in `claimJobs`. This stops crashing poison pills from cycling endlessly in `active` state and ensures they eventually reach `dead`."
+- **Interview Takeaway:** I implemented SQS ApproximateReceiveCount semantics by incrementing `attempts` during crash reclaims in `claimJobs`. This stops crashing poison pills from cycling endlessly in `active` state and ensures they eventually reach `dead`.
 
 ---
 
