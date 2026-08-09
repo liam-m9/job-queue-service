@@ -33,13 +33,18 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
 - **Defensible Defense:** "We fenced terminal state updates with lease ownership checks (`status = 'active' AND run_at > now()`). If a worker exceeds its visibility timeout, its late write-back becomes a no-op, preventing dead men's hands from overwriting active job state."
 
+### [P1] Crash-reclaim never counts an attempt
+- **Branch:** `fix/reclaim-counts-attempt`
+- **File:** `worker.ts`, `claimJobs` UPDATE query; `README.md`
+- **Root Cause:** Expired active jobs claimed during crash recovery previously retained their `attempts` count without incrementing. A job that repeatedly crashed its worker process cycled `active` -> reclaimed -> `active` indefinitely without reaching `max_attempts` or transitioning to `dead`.
+- **Implementation:** Updated the `claimJobs` `UPDATE` query with a `CASE` statement: `WHEN status = 'active' THEN attempts + 1 ELSE attempts END`. This increments `attempts` when claiming an expired active job (modeling AWS SQS `ApproximateReceiveCount` / DLQ redrive semantics). Updated `README.md` to document the receive-count mechanism and the requirement that `VISIBILITY_TIMEOUT` exceed worst-case handler duration.
+- **Trade-Offs:** Incrementing attempt count on crash reclaim guarantees that poison-pill jobs crashing workers move to `dead`. A tight visibility timeout on a slow but healthy job could cost one false attempt, which is mitigated by tuning `VISIBILITY_TIMEOUT`.
+- **Verification:** Clean TypeScript compilation (`npm run typecheck`).
+- **Defensible Defense:** "We implemented SQS ApproximateReceiveCount semantics by incrementing `attempts` during crash reclaims in `claimJobs`. This stops crashing poison pills from cycling endlessly in `active` state and ensures they eventually reach `dead`."
+
 ---
 
 ## Future Bug Fixes Backlog
-
-### [P1] Crash-reclaim never counts an attempt (branch: `fix/reclaim-counts-attempt`)
-- **Learn first:** SQS receive count & DLQ redrive policies; visibility timeout reclaim semantics.
-- **Status:** todo
 
 ### [P2] Per-job re-SELECT instead of claiming with RETURNING (branch: `perf/claim-returning-batch`)
 - **Learn first:** Database round-trip minimization; `UPDATE ... RETURNING` batch fetching.

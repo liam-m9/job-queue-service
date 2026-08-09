@@ -57,7 +57,7 @@ Legend: **P0** correctness / data durability, **P1** robustness & ownership, **P
 - **Fix approach:** Increment `attempts` in the claim `UPDATE` query whenever claiming an expired `active` job (SQS `ApproximateReceiveCount` pattern). Update README disclosures to reflect the receive-count behavior.
 - **Concept:** SQS receive count & DLQ redrive policies; visibility timeout reclaim semantics.
 - **Branch:** `fix/reclaim-counts-attempt`
-- **Status:** todo
+- **Status:** done
 
 ### [P2] Per-job re-SELECT instead of claiming with RETURNING
 - **Where:** `worker.ts`, `claimJobs` + `processJob`

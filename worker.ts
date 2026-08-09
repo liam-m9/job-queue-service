@@ -35,9 +35,13 @@ async function claimJobs(batchSize: number): Promise<number[]> {
     await client.query(
       `
         UPDATE jobs 
-        SET status = 'active',
+        SET attempts = CASE 
+                WHEN status = 'active' THEN attempts + 1 
+                ELSE attempts 
+            END,
+            status = 'active',
             run_at = now() + (interval '1 second' * $2) 
-            WHERE id = ANY($1)
+        WHERE id = ANY($1)
         RETURNING id
         `,
       [jobIds, VISIBILITY_TIMEOUT],
