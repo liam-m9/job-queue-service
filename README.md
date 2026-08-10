@@ -46,20 +46,20 @@ docker compose exec -T postgres psql -U jobqueue -d jobqueue < db.sql
 
 ```bash
 # seed some jobs (mix of reliable and flaky)
-node enqueue-demo.js 50
+npx tsx enqueue-demo.ts 50
 
 # in 2-3 separate terminals, start a worker each:
-node run-worker.js --id=1
-node run-worker.js --id=2
-node run-worker.js --id=3
+npx tsx run-worker.ts --id=1
+npx tsx run-worker.ts --id=2
+npx tsx run-worker.ts --id=3
 
 # check on progress at any time:
-node queue-stats.js
+npx tsx queue-stats.ts
 ```
 
 Workers shut down gracefully on Ctrl+C (`SIGINT`) or `SIGTERM`. They stop claiming new batches and let whatever's currently in-flight finish before exiting, rather than dying mid-job.
 
-`queue-stats.js` shows a count of jobs by status, plus the `id`/`type`/`last_error` of any `dead` jobs, so you can see why something ultimately failed instead of just that it did.
+`queue-stats.ts` shows a count of jobs by status, plus the `id`/`type`/`last_error` of any `dead` jobs, so you can see why something ultimately failed instead of just that it did.
 
 ## Testing
 
@@ -67,7 +67,7 @@ Workers shut down gracefully on Ctrl+C (`SIGINT`) or `SIGTERM`. They stop claimi
 npm test
 ```
 
-`concurrency.test.js` seeds 150 jobs and runs three `claimJobs(15)` calls concurrently (not sequentially, genuinely overlapping in time), then asserts every claimed id is unique across all three calls and that the full 45 requested jobs were actually claimed. This is the concrete proof that `SKIP LOCKED` prevents double-processing under real concurrency, not just in theory.
+`concurrency.test.ts` seeds 150 jobs and runs three `claimJobs(15)` calls concurrently (not sequentially, genuinely overlapping in time), then asserts every claimed id is unique across all three calls and that the full 45 requested jobs were actually claimed. This is concrete proof that `SKIP LOCKED` prevents simultaneous double-claiming, not a claim of exactly-once processing.
 
 ## Performance
 

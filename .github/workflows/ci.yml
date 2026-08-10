@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jobqueue
+          POSTGRES_PASSWORD: jobqueue
+          POSTGRES_DB: jobqueue
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobqueue -d jobqueue"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgres://jobqueue:jobqueue@localhost:5432/jobqueue
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: psql "$DATABASE_URL" -f db.sql
+      - run: npm test
