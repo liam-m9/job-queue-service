@@ -1,4 +1,4 @@
-# Job Queue Service — Bug Fixes Plan
+# Job Queue Service - Bug Fixes Plan
 
 This document outlines the bug fixes, concurrency improvements, and technical updates for the Postgres-backed job queue service.
 
@@ -11,7 +11,7 @@ This document outlines the bug fixes, concurrency improvements, and technical up
 
 ---
 
-## Claims & Guarantees — Maintain These Contracts
+## Claims & Guarantees - Maintain These Contracts
 
 1. `SELECT ... FOR UPDATE SKIP LOCKED` for disjoint concurrent batch claiming.
 2. The concurrency test shape: **150 seeded jobs, 3 overlapping `claimJobs(15)` calls, all 45 claimed IDs unique**.
@@ -43,21 +43,29 @@ Legend: **P0** correctness / data durability, **P1** robustness & ownership, **P
 - **Branch:** `fix/structural-failure-fast-dead`
 - **Status:** done
 
-### [P1] Unguarded write-back after visibility timeout expires
+### [P1] Deadline-guarded write-back after visibility timeout expires
 - **Where:** `worker.ts`, `processJob`
 - **Problem:** A worker that exceeds the 60s visibility timeout continues processing. Another worker can reclaim the job once `run_at` expires. The slow worker's completion/failure `UPDATE` statements run unconditionally by `id`, overwriting the state of a job currently being processed by worker 2.
-- **Fix approach:** Fencing the `UPDATE` queries with conditional checks (`WHERE id = $1 AND status = 'active' AND run_at > now()`) or adding a `claim_epoch` (fencing token) column incremented on claim.
+- **Fix approach:** The implemented conditional check (`WHERE id = $1 AND status = 'active' AND run_at > now()`) rejects already-expired writes but does not identify a claim uniquely. A separate claim-generation design is required for full fencing after reclaim.
 - **Concept:** Fencing tokens; concurrency lease validation; state machine integrity.
 - **Branch:** `fix/guarded-writeback`
-- **Status:** done
+- **Status:** partial; deadline guard done, unique ownership queued separately
 
-### [P1] Crash-reclaim never counts an attempt
+### [P1] Crash-reclaim attempt counting
 - **Where:** `worker.ts`, `claimJobs`
 - **Problem:** A job whose worker crashes during processing gets reclaimed when `run_at <= now()`, but its `attempts` count is never incremented. It cycles active-to-reclaimed indefinitely without ever reaching `max_attempts` or transitioning to `dead`.
-- **Fix approach:** Increment `attempts` in the claim `UPDATE` query whenever claiming an expired `active` job (SQS `ApproximateReceiveCount` pattern). Update README disclosures to reflect the receive-count behavior.
+- **Fix approach:** Increment `attempts` in the claim `UPDATE` query whenever claiming an expired `active` job. Then separately define and enforce the terminal boundary when a crash-only job exhausts `max_attempts`.
 - **Concept:** SQS receive count & DLQ redrive policies; visibility timeout reclaim semantics.
 - **Branch:** `fix/reclaim-counts-attempt`
-- **Status:** done
+- **Status:** partial; counting done, exhaustion handling queued separately
+
+### [P1] Crash-only reclaim exceeds max attempts
+- **Where:** `worker.ts`, `claimJobs`
+- **Problem:** The reclaim update increments `attempts`, but candidate selection and the transition do not stop or terminally handle an expired active job at the retry limit. Repeated process crashes can therefore exceed `max_attempts`.
+- **Fix approach:** Define the attempt boundary, add a deterministic failing test, and make the exhausted transition atomic without returning the job for handler execution.
+- **Concept:** Retry-budget boundaries; poison-job handling; atomic conditional state transitions.
+- **Branch:** `fix/crash-reclaim-max-attempts`
+- **Status:** todo
 
 ### [P2] Per-job re-SELECT instead of claiming with RETURNING
 - **Where:** `worker.ts`, `claimJobs` + `processJob`

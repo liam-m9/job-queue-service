@@ -1,4 +1,4 @@
-# Job Queue Service — Bug Fixes Log
+# Job Queue Service - Bug Fixes Log
 
 This document records the architectural decisions, bug fixes, and concurrency fixes implemented for the Postgres-backed job queue service. Each section details the technical root cause, the chosen implementation, trade-offs, and verification.
 
@@ -24,27 +24,31 @@ This document records the architectural decisions, bug fixes, and concurrency fi
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
 - **Core rationale:** I separated structural errors (missing rows or unregistered code handlers) from transient failures. Structural errors fail fast to `dead` on attempt 1 without burning retries, while early row checking prevents secondary `TypeError` crashes inside the catch block.
 
-### [P1] Unguarded write-back after visibility timeout expires
+### [P1] Deadline-guarded write-back after visibility timeout expires
 - **Branch:** `fix/guarded-writeback`
 - **File:** `worker.ts`
 - **Root Cause:** If a worker process took longer than the 60s visibility timeout (`run_at <= now()`), another worker could re-claim the active job. The slow worker's completion or failure `UPDATE` statements executed unconditionally by `WHERE id = $1`, overwriting the state of a job currently being processed by worker 2.
-- **Implementation:** Added lease ownership fencing to terminal `UPDATE` queries (`WHERE id = $1 AND status = 'active' AND run_at > now()`). If `result.rowCount === 0`, logged a warning that write-back was ignored due to an expired claim/lost ownership, preventing stale state overwrites.
-- **Trade-Offs:** Fencing the `UPDATE` query guarantees state machine integrity with zero database schema changes or extra locking overhead.
+- **Implementation:** Added a deadline guard to terminal `UPDATE` queries (`WHERE id = $1 AND status = 'active' AND run_at > now()`). If `result.rowCount === 0`, the worker logs that write-back was ignored because the row no longer looks active under a valid deadline.
+- **Trade-Offs:** This rejects a write after the visible deadline has expired without a schema change. It is not full ownership fencing: after another worker reclaims the row and creates a new future deadline, an older worker still has no unique claim generation to compare.
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
-- **Core rationale:** I fenced terminal state updates with lease ownership checks (`status = 'active' AND run_at > now()`). If a worker exceeds its visibility timeout, its late write-back becomes a no-op, preventing dead men's hands from overwriting active job state.
+- **Core rationale:** I added a cheap expiry guard to terminal state updates. It narrows the stale-write window, but unique claim ownership is still required before claiming complete stale-worker protection.
 
-### [P1] Crash-reclaim never counts an attempt
+### [P1] Crash-reclaim attempt counting
 - **Branch:** `fix/reclaim-counts-attempt`
 - **File:** `worker.ts`, `claimJobs` UPDATE query; `README.md`
 - **Root Cause:** Expired active jobs claimed during crash recovery previously retained their `attempts` count without incrementing. A job that repeatedly crashed its worker process cycled `active` -> reclaimed -> `active` indefinitely without reaching `max_attempts` or transitioning to `dead`.
 - **Implementation:** Updated the `claimJobs` `UPDATE` query with a `CASE` statement: `WHEN status = 'active' THEN attempts + 1 ELSE attempts END`. This increments `attempts` when claiming an expired active job (modeling AWS SQS `ApproximateReceiveCount` / DLQ redrive semantics). Updated `README.md` to document the receive-count mechanism and the requirement that `VISIBILITY_TIMEOUT` exceed worst-case handler duration.
-- **Trade-Offs:** Incrementing attempt count on crash reclaim guarantees that poison-pill jobs crashing workers move to `dead`. A tight visibility timeout on a slow but healthy job could cost one false attempt, which is mitigated by tuning `VISIBILITY_TIMEOUT`.
+- **Trade-Offs:** Incrementing on reclaim records crash-like receives, but counting is not the same as enforcing the retry budget. The current claim path can continue returning the row after `attempts` reaches `max_attempts`. A tight timeout on a slow but healthy job can also consume a false attempt.
 - **Verification:** Clean TypeScript compilation (`npm run typecheck`).
-- **Core rationale:** I implemented SQS ApproximateReceiveCount semantics by incrementing `attempts` during crash reclaims in `claimJobs`. This stops crashing poison pills from cycling endlessly in `active` state and ensures they eventually reach `dead`.
+- **Core rationale:** I added receive-style counting during crash reclaims. A separate fix is still required to terminally handle an exhausted crash-only job.
 
 ---
 
 ## Future Bug Fixes Backlog
+
+### [P1] Crash-only reclaim exceeds max attempts (branch: `fix/crash-reclaim-max-attempts`)
+- **Learn first:** Retry-budget boundary semantics; atomic terminal transitions; deterministic lease-expiry tests.
+- **Status:** todo
 
 ### [P2] Per-job re-SELECT instead of claiming with RETURNING (branch: `perf/claim-returning-batch`)
 - **Learn first:** Database round-trip minimization; `UPDATE ... RETURNING` batch fetching.

@@ -14,7 +14,7 @@ flowchart LR
     W3["Worker 3"] -->|SKIP LOCKED claim| J
 ```
 
-Producers just insert a row and move on. Workers independently poll the same table, each claiming a batch of jobs at a time. `SKIP LOCKED` guarantees two workers never walk away thinking they own the same job, even if they query at the exact same instant.
+Producers just insert a row and move on. Workers independently poll the same table, each claiming a batch of jobs at a time. During the tested overlapping claim transactions, `SKIP LOCKED` lets each caller skip rows locked by another caller and return disjoint job IDs. This claim-time result is not a guarantee of exactly-once execution after the transaction commits.
 
 ## Schema
 
@@ -86,4 +86,5 @@ A single worker processed 300 seeded jobs at ~700 jobs/sec on a local Postgres i
 - **At-least-once delivery, not exactly-once.** If a worker crashes after doing the real work but before marking a job `completed`, the visibility timeout will eventually let another worker re-claim and redo it. Handlers should be idempotent for full correctness. This implementation doesn't enforce that itself.
 - No job priority or recurring/scheduled jobs beyond the one-time `run_at`.
 - `processJob` fetches full job details with its own per-job `SELECT` rather than batching, a deliberate simplicity tradeoff explained above, not free at high throughput.
-- **Crash recovery and receive counts.** When a worker crashes or fails to finish before the 60-second visibility timeout, the job is reclaimed on the next poll and its `attempts` counter is incremented at claim time (modeling SQS `ApproximateReceiveCount` semantics). If a job repeatedly crashes its worker, it will eventually reach `max_attempts` and move to `dead`. A tight visibility timeout on a long-running but healthy job could cause a single false reclaim attempt, so `VISIBILITY_TIMEOUT` must exceed worst-case handler execution time.
+- **Crash recovery and receive counts.** When a worker crashes or fails to finish before the 60-second visibility timeout, the job can be reclaimed on a later poll and its `attempts` counter is incremented at claim time. The current reclaim path does not yet stop or move a crash-only job to `dead` when that counter reaches `max_attempts`, so repeated process crashes can exceed the configured budget. A tight visibility timeout on a long-running but healthy job can also cause a false reclaim, so `VISIBILITY_TIMEOUT` must exceed expected handler execution time.
+- **Deadline guard is not unique ownership.** Terminal writes require an active row with a future `run_at`, which rejects a write after its visible deadline has already expired. If a newer worker reclaims the row and assigns a new future deadline, however, an older worker does not carry a unique claim token that distinguishes its stale write. Full stale-worker fencing remains unimplemented.
