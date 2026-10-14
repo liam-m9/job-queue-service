@@ -1,6 +1,6 @@
 # Job Queue (Postgres)
 
-A durable background job queue built on Postgres alone, no Redis, no external queue library. Multiple worker processes can safely claim jobs from the same table at the same time using `SELECT ... FOR UPDATE SKIP LOCKED`, with automatic retries, linear backoff, dead-lettering after too many failures, and crash recovery via a visibility timeout.
+A background job queue built on Postgres alone, no Redis, no external queue library. Multiple worker processes can claim jobs from the same table at the same time using `SELECT ... FOR UPDATE SKIP LOCKED`, with automatic retries, linear backoff, a terminal `dead` state after repeated handler failures, and lease-based crash reclaim via a visibility timeout. Processing is at-least-once.
 
 I built this because I kept hearing it was a genuinely good project for learning backend concurrency and how a real database handles it under load, so I wanted to see it for myself. I picked Postgres over Redis on purpose, not because it's the harder path, but because I wanted to learn the fundamentals with plain SQL first, no framework in the way, and that decision ended up teaching me a lot about how SQL queries and ORMs actually work underneath.
 
@@ -68,10 +68,6 @@ npm test
 ```
 
 `concurrency.test.ts` seeds 150 jobs and runs three `claimJobs(15)` calls concurrently (not sequentially, genuinely overlapping in time), then asserts every claimed id is unique across all three calls and that the full 45 requested jobs were actually claimed. This is concrete proof that `SKIP LOCKED` prevents simultaneous double-claiming, not a claim of exactly-once processing.
-
-## Performance
-
-A single worker processed 300 seeded jobs at ~700 jobs/sec on a local Postgres instance (verified end-to-end, not estimated: table confirmed empty before seeding, confirmed fully `completed` after). This is a local, single-worker, deterministic-handler number, not a distributed-scale claim, but it's real.
 
 ## Design tradeoffs
 
