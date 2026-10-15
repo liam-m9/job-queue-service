@@ -17,7 +17,7 @@ This document outlines the bug fixes, concurrency improvements, and technical up
 2. The concurrency test shape: **150 seeded jobs, 3 overlapping `claimJobs(15)` calls, all 45 claimed IDs unique**.
 3. **Linear** backoff (`attempts * BACKOFF_DELAY`) for retries.
 4. **60-second visibility timeout** reclaiming crashed worker jobs.
-5. Single-worker throughput benchmark (~700 jobs/sec end-to-end).
+5. Single-worker end-to-end run of seeded jobs (too small a sample to quote as a throughput figure).
 6. At-least-once delivery semantics (not exactly-once).
 7. Pure PostgreSQL implementation (no Redis, no external queue libraries).
 
